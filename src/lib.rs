@@ -1,14 +1,92 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use parking_lot::Mutex;
+use std::{fmt::Debug, io::Write, sync::Arc};
+
+/// The destination for flushes of the [`Buffer`].
+pub trait Sink: Debug {
+    fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+/// A buffer which will flush to a defined [`Sink`].
+pub struct Buffer<S> {
+    inner: Arc<Mutex<Vec<u8>>>,
+    sink: S,
+    max_size: usize,
+}
+
+impl<S> Buffer<S> {
+    pub fn new(capacity: Option<usize>, max_size: usize, sink: S) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Vec::with_capacity(capacity.unwrap_or(1024)))),
+            sink,
+            max_size,
+        }
+    }
+}
+
+impl<S: Sink> Buffer<S> {
+    fn write(&self, data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
+        {
+            let mut guard = self.inner.lock();
+            guard.write_all(data)?;
+
+            if guard.len() >= self.max_size {
+                self.sink.write(&guard)?;
+                guard.clear();
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod test {
+    use std::{fmt::Debug, io::Write, sync::Arc};
+
+    use crate::{Buffer, Sink};
+    use parking_lot::Mutex;
+
+    #[derive(Debug)]
+    struct MemSink {
+        inner: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl Sink for MemSink {
+        fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+            self.inner.lock().write_all(data).unwrap();
+            Ok(())
+        }
+    }
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn flushes() {
+        let sink = MemSink {
+            inner: Arc::new(Mutex::new(Vec::new())),
+        };
+        let sink_inner = Arc::clone(&sink.inner);
+
+        let buffer = Buffer::new(None, 10, sink);
+        let buffer_inner = Arc::clone(&buffer.inner);
+
+        assert!(
+            !buffer.write(b"hello").unwrap(),
+            "Flush should not have happened above configured max size",
+        );
+        assert_eq!(buffer_inner.lock().to_vec(), b"hello");
+        assert!(
+            sink_inner.lock().is_empty(),
+            "Sink should be empty from no flush"
+        );
+
+        assert!(
+            buffer.write(b" world").unwrap(),
+            "Flush should have occurred"
+        );
+        assert!(
+            buffer_inner.lock().is_empty(),
+            "Buffer should be cleared after flush"
+        );
+        assert_eq!(sink_inner.lock().to_vec(), b"hello world");
     }
 }
