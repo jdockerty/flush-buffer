@@ -1,8 +1,5 @@
-use std::{
-    fmt::Debug,
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use parking_lot::Mutex;
+use std::{fmt::Debug, io::Write, sync::Arc};
 
 /// The destination for flushes of the [`Buffer`].
 pub trait Sink: Debug {
@@ -29,7 +26,7 @@ impl<S> Buffer<S> {
 impl<S: Sink> Buffer<S> {
     fn write(&self, data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
         {
-            let mut guard = self.inner.lock().expect("lock is not poisoned");
+            let mut guard = self.inner.lock();
             guard.write_all(data)?;
 
             if guard.len() >= self.max_size {
@@ -45,13 +42,10 @@ impl<S: Sink> Buffer<S> {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        fmt::Debug,
-        io::Write,
-        sync::{Arc, Mutex},
-    };
+    use std::{fmt::Debug, io::Write, sync::Arc};
 
     use crate::{Buffer, Sink};
+    use parking_lot::Mutex;
 
     #[derive(Debug)]
     struct MemSink {
@@ -60,7 +54,7 @@ mod test {
 
     impl Sink for MemSink {
         fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-            self.inner.lock().unwrap().write_all(data).unwrap();
+            self.inner.lock().write_all(data).unwrap();
             Ok(())
         }
     }
@@ -79,9 +73,9 @@ mod test {
             !buffer.write(b"hello").unwrap(),
             "Flush should not have happened above configured max size",
         );
-        assert_eq!(buffer_inner.lock().unwrap().to_vec(), b"hello");
+        assert_eq!(buffer_inner.lock().to_vec(), b"hello");
         assert!(
-            sink_inner.lock().unwrap().is_empty(),
+            sink_inner.lock().is_empty(),
             "Sink should be empty from no flush"
         );
 
@@ -90,9 +84,9 @@ mod test {
             "Flush should have occurred"
         );
         assert!(
-            buffer_inner.lock().unwrap().is_empty(),
+            buffer_inner.lock().is_empty(),
             "Buffer should be cleared after flush"
         );
-        assert_eq!(sink_inner.lock().unwrap().to_vec(), b"hello world");
+        assert_eq!(sink_inner.lock().to_vec(), b"hello world");
     }
 }
