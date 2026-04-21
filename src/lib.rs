@@ -1,4 +1,4 @@
-use parking_lot::Mutex;
+use parking_lot::{Mutex, MutexGuard};
 use std::{fmt::Debug, io::Write, sync::Arc};
 
 /// The destination for flushes of the [`Buffer`].
@@ -6,30 +6,41 @@ pub trait Sink: Debug {
     fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-/// A buffer which will flush to a defined [`Sink`].
-pub struct Buffer<S> {
-    inner: Arc<Mutex<Vec<u8>>>,
-    sink: S,
-    max_size: usize,
+/// A trigger captures the behaviour of a predicate which causes
+/// a flush to the [`Sink`] to occur for the [`Buffer`].
+pub trait Trigger: Debug {
+    /// Criteria for a flush to occur.
+    fn should_flush(
+        &self,
+        buffer: &MutexGuard<Vec<u8>>,
+    ) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
-impl<S> Buffer<S> {
-    pub fn new(capacity: Option<usize>, max_size: usize, sink: S) -> Self {
+/// A buffer which will flush to a defined [`Sink`] based
+/// on a [`Trigger`].
+pub struct Buffer<S, T> {
+    inner: Arc<Mutex<Vec<u8>>>,
+    sink: S,
+    trigger: T,
+}
+
+impl<S, T> Buffer<S, T> {
+    pub fn new(capacity: Option<usize>, sink: S, trigger: T) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::with_capacity(capacity.unwrap_or(1024)))),
             sink,
-            max_size,
+            trigger,
         }
     }
 }
 
-impl<S: Sink> Buffer<S> {
+impl<S: Sink, T: Trigger> Buffer<S, T> {
     fn write(&self, data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
         {
             let mut guard = self.inner.lock();
             guard.write_all(data)?;
 
-            if guard.len() >= self.max_size {
+            if self.trigger.should_flush(&guard)? {
                 self.sink.write(&guard)?;
                 guard.clear();
                 return Ok(true);
@@ -44,8 +55,8 @@ impl<S: Sink> Buffer<S> {
 mod test {
     use std::{fmt::Debug, io::Write, sync::Arc};
 
-    use crate::{Buffer, Sink};
-    use parking_lot::Mutex;
+    use crate::{Buffer, Sink, Trigger};
+    use parking_lot::{Mutex, MutexGuard};
 
     #[derive(Debug)]
     struct MemSink {
@@ -59,14 +70,27 @@ mod test {
         }
     }
 
+    #[derive(Debug)]
+    struct SizeTrigger(usize);
+
+    impl Trigger for SizeTrigger {
+        fn should_flush(
+            &self,
+            buffer: &MutexGuard<Vec<u8>>,
+        ) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(buffer.len() >= self.0)
+        }
+    }
+
     #[test]
     fn flushes() {
         let sink = MemSink {
             inner: Arc::new(Mutex::new(Vec::new())),
         };
         let sink_inner = Arc::clone(&sink.inner);
+        let trigger = SizeTrigger(10);
 
-        let buffer = Buffer::new(None, 10, sink);
+        let buffer = Buffer::new(None, sink, trigger);
         let buffer_inner = Arc::clone(&buffer.inner);
 
         assert!(
