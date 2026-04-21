@@ -6,7 +6,7 @@ pub trait Sink: Debug {
     fn flush(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-/// A trigger captures the behaviour of a predicate which causes
+/// A trigger captures the behaviour of a predicate which should cause
 /// a flush to the [`Sink`] to occur for the [`Buffer`].
 pub trait Trigger: Debug {
     /// Criteria for a flush to occur.
@@ -35,6 +35,10 @@ impl<S, T> Buffer<S, T> {
 }
 
 impl<S: Sink, T: Trigger> Buffer<S, T> {
+    /// Write to the underlying buffer.
+    ///
+    /// The buffer MAY flush to the defined [`Sink`] depending on the predicate
+    /// within the [`Trigger`].
     fn write(&self, data: &[u8]) -> Result<bool, Box<dyn std::error::Error>> {
         {
             let mut guard = self.inner.lock();
