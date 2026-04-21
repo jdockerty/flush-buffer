@@ -3,7 +3,7 @@ use std::{fmt::Debug, io::Write, sync::Arc};
 
 /// The destination for flushes of the [`Buffer`].
 pub trait Sink: Debug {
-    fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+    fn flush(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 /// A trigger captures the behaviour of a predicate which causes
@@ -41,7 +41,7 @@ impl<S: Sink, T: Trigger> Buffer<S, T> {
             guard.write_all(data)?;
 
             if self.trigger.should_flush(&guard)? {
-                self.sink.write(&guard)?;
+                self.sink.flush(&guard)?;
                 guard.clear();
                 return Ok(true);
             }
@@ -64,7 +64,7 @@ mod test {
     }
 
     impl Sink for MemSink {
-        fn write(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        fn flush(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
             self.inner.lock().write_all(data).unwrap();
             Ok(())
         }
