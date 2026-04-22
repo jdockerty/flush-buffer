@@ -31,7 +31,7 @@ impl<S: Sink, T: Trigger> Buffer<S, T> {
             let mut guard = self.inner.lock();
             guard.write_all(data)?;
 
-            if self.trigger.should_flush(&guard)? {
+            if self.trigger.should_flush(Some(&guard))? {
                 self.sink.flush(&guard)?;
                 guard.clear();
                 return Ok(true);
