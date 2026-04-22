@@ -8,7 +8,7 @@ pub trait Trigger: Debug {
     /// Criteria for a flush to occur.
     fn should_flush(
         &self,
-        buffer: &MutexGuard<Vec<u8>>,
+        buffer: Option<&MutexGuard<Vec<u8>>>,
     ) -> Result<bool, Box<dyn std::error::Error>>;
 }
 
