@@ -1,10 +1,6 @@
 use std::{
     fmt::Debug,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc::{Receiver, Sender},
-    },
+    sync::mpsc::{Receiver, Sender},
     thread::JoinHandle,
     time::Duration,
 };
